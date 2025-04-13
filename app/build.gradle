@@ -55,6 +55,7 @@ dependencies {
 
     // Lifecycle components
     implementation libs.androidx.lifecycle.runtime.ktx
+    implementation fileTree(includes: ['*.jar','*.aar'], dir: 'libs')
 
     // Google Maps and Location
     implementation 'com.google.android.gms:play-services-maps:18.1.0'
