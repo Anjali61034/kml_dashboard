@@ -398,48 +398,48 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             // Set the location ID
             NavigineSdkManager.locationManager.setLocationId(locationId)
 
-            // Set a listener to know when the location is loaded
-           // val locationListener = object : LocationListener() {
-               // override fun onLocationLoaded(location: Location?) {
-                 //   if (location != null) {
-                       // val sublocations = location.sublocations
-                      //  if (!sublocations.isNullOrEmpty()) {
-                           // val venueSuggestions = mutableListOf<String>()
-                            //for (sublocation in sublocations) {
-                             //   val venues = sublocation.venues
-                                //if (!venues.isNullOrEmpty()) {
-                                 //   for (venue in venues) {
-                                     //   venueSuggestions.add(venue.name)
-                                  //  }
-                               // }
-                           // }
+            /* Set a listener to know when the location is loaded
+            val locationListener = object : LocationListener() {
+                override fun onLocationLoaded(location: Location?) {
+                    if (location != null) {
+                        val sublocations = location.sublocations
+                        if (!sublocations.isNullOrEmpty()) {
+                            val venueSuggestions = mutableListOf<String>()
+                            for (sublocation in sublocations) {
+                               val venues = sublocation.venues
+                                if (!venues.isNullOrEmpty()) {
+                                    for (venue in venues) {
+                                       venueSuggestions.add(venue.name)
+                                    }
+                                }
+                            }
 
-                            //runOnUiThread {
-                              //  val suggestionsAdapter = ArrayAdapter(
-                                //    this@MainActivity,
-                                  //  android.R.layout.simple_list_item_1,
-                                    //venueSuggestions
-                            //    )
-                              //  suggestionsListView.adapter = suggestionsAdapter
-                           // }
-                       // }
-                    //}
-              //  }
+                            runOnUiThread {
+                                val suggestionsAdapter = ArrayAdapter(
+                                    this@MainActivity,
+                                    android.R.layout.simple_list_item_1,
+                                    venueSuggestions
+                                )
+                                suggestionsListView.adapter = suggestionsAdapter
+                            }
+                        }
+                    }
+                }
 
-                //override fun onLocationFailed() {
-                   // Log.e(TAG, "Failed to load Navigine location details: ${}")
-               // }
-            //}
+                override fun onLocationFailed() {
+                    Log.e(TAG, "Failed to load Navigine location details: ${}")
+                }
+            }
 
 
 
             // Add the listener using the correct method
-          //  NavigineSdkManager.locationManager.addLocationListener(locationListener)
+            NavigineSdkManager.locationManager.addLocationListener(locationListener)
 
             // Based on error message, there is no loadLocation method.
             // Setting the location ID likely triggers the loading process automatically.
             // If you need to trigger loading explicitly, check the SDK documentation
-            // for the correct method or approach.
+            // for the correct method or approach.*/
 
         } catch (e: Exception) {
             Log.e(TAG, "Error loading venues for location: ${e.message}")
