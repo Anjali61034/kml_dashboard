@@ -28,10 +28,15 @@ import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
+import com.navigine.idl.java.GlobalPoint
 import com.navigine.idl.java.Location
+import com.navigine.idl.java.Position
 import com.navigine.idl.java.LocationInfo
 import com.navigine.idl.java.LocationListener
 import com.navigine.idl.java.LocationListListener
+import com.navigine.idl.java.LocationPoint
+import com.navigine.idl.java.Point
+import com.navigine.idl.java.Polygon
 import com.navigine.idl.java.Sublocation
 import com.navigine.idl.java.Venue
 import java.io.IOException
@@ -64,6 +69,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var navigineLocations = mutableListOf<LocationInfo>()
     private var isLocationCanaryConnected = false
     private var matchedLocation: LocationInfo? = null
+
+    // Store loaded locations
+    private val loadedLocations = HashMap<Int, Location>()
+
+    // Store location data with coordinates
+    private val locationCoordinatesMap = HashMap<Int, LocationCoordinates>()
 
     // Speech recognition launcher
     private val speechRecognitionLauncher = registerForActivityResult(
@@ -178,6 +189,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     navigineLocations.addAll(locationInfoList)
                     Log.d(TAG, "Loaded ${navigineLocations.size} Navigine locations")
 
+                    // Load details for each location
+                    for (locationInfo in navigineLocations) {
+                        loadLocationDetails(locationInfo.id)
+                    }
+
                     // Check if user's location is already fetched, if yes, check for matches
                     if (userLatitude != 0.0 && userLongitude != 0.0) {
                         checkIfLocationIsCanaryConnected()
@@ -197,6 +213,128 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         } catch (e: Exception) {
             Log.e(TAG, "Error loading Navigine locations: ${e.message}")
         }
+    }
+
+    // Class to store location coordinates and boundaries
+    data class LocationCoordinates(
+        val id: Int,
+        val name: String,
+        val originPoint: GlobalPoint? = null,  // Origin point in global coordinates
+        val width: Float = 0f,
+        val height: Float = 0f,
+        val azimuth: Float = 0f,   // Orientation angle in degrees
+        val venues: List<VenueCoordinates> = emptyList(),
+        val zones: List<ZoneCoordinates> = emptyList()
+    )
+
+    data class VenueCoordinates(
+        val id: Int,
+        val name: String,
+        val point: Point? = null   // Local coordinates within sublocation
+    )
+
+    data class ZoneCoordinates(
+        val id: Int,
+        val name: String,
+        val polygon: Polygon? = null  // Local coordinates of zone boundary
+    )
+
+    private fun loadLocationDetails(locationId: Int) {
+        try {
+            val locationManager = NavigineSdkManager.locationManager.setLocationId(locationId)
+
+            // Replace the locationListener implementation at line ~246
+
+            val locationListener =object:LocationListener() {
+                override fun onLocationLoaded(location: Location) {
+                    // Store the loaded location for later use
+                    loadedLocations[locationId] = location
+
+                    // Get all sublocations for this location
+                    val sublocations = location.getSublocations()
+
+                    // Use iterator properly to avoid ambiguity
+                    val sublocationsIterator = sublocations.iterator() as Iterator<Sublocation>
+                    for (sublocation in sublocationsIterator) {
+                        // Get the origin point in global coordinates (lat, lon)
+                        val originPoint = sublocation.getOriginPoint()
+
+                        if (originPoint != null) {
+                            // Extract venue information - use iterator to avoid ambiguity
+                            val venuesIterator = sublocation.getVenues().iterator() as Iterator<Venue>
+                            val venues = mutableListOf<VenueCoordinates>()
+                            for (venue in venuesIterator) {
+                                venues.add(
+                                    VenueCoordinates(
+                                        id = venue.getId(),
+                                        name = venue.getName(),
+                                        point = venue.getPoint()
+                                    )
+                                )
+                            }
+
+                            // Extract zone information using iterator to avoid ambiguity
+                            val zonesIterator = sublocation.getZones().iterator() as Iterator<com.navigine.idl.java.Zone>
+                            val zones = mutableListOf<ZoneCoordinates>()
+                            for (zone in zonesIterator) {
+                                zones.add(
+                                    ZoneCoordinates(
+                                        id = zone.getId(),
+                                        name = zone.getName(),
+                                        polygon = zone.getPolygon()
+                                    )
+                                )
+                            }
+
+                            Log.d(TAG, "Location ${location.getName()} sublocation ${sublocation.getName()} has origin point: ${originPoint.latitude}, ${originPoint.longitude}")
+                            Log.d(TAG, "Found ${venues.size} venues and ${zones.size} zones")
+
+                            locationCoordinatesMap[locationId] = LocationCoordinates(
+                                id = locationId,
+                                name = location.getName(),
+                                originPoint = originPoint,
+                                width = sublocation.getWidth(),
+                                height = sublocation.getHeight(),
+                                azimuth = sublocation.getAzimuth(),
+                                venues = venues,
+                                zones = zones
+                            )
+
+                            // We found a sublocation with coordinates, so break the loop
+                            break
+                        }
+                    }
+
+                    // After loading location details, check if user is in any Canary location
+                    if (userLatitude != 0.0 && userLongitude != 0.0) {
+                        checkIfLocationIsCanaryConnected()
+                    }
+                }
+
+                override fun onLocationUploaded(p0: Int) {
+                    TODO("Not yet implemented")
+                }
+
+                override fun onLocationFailed(p0: Int, p1: java.lang.Error?) {
+                    TODO("Not yet implemented")
+                }
+
+                // Try this signature for the method that handles failures
+                //override fun onFailed(error: Error) {
+                   // Log.e(TAG, "Failed to load location details for ID: $locationId, error: ${error.message}")
+               // }
+            }
+
+            NavigineSdkManager.locationManager.addLocationListener(locationListener)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading location details: ${e.message}")
+        }
+    }
+
+    // Helper method to get a loaded location
+    private fun getLoadedLocation(locationId: Int): Location? {
+        return loadedLocations[locationId]
     }
 
     private fun startSpeechRecognition() {
@@ -260,7 +398,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     getAddressFromLocation(userLatitude, userLongitude)
 
                     // Check if this location matches with any Navigine location
-                    if (navigineLocations.isNotEmpty()) {
+                    if (locationCoordinatesMap.isNotEmpty()) {
                         checkIfLocationIsCanaryConnected()
                     }
                 }
@@ -313,12 +451,86 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         isLocationCanaryConnected = false
         matchedLocation = null
 
-        // Check if the user's current location matches with any Navigine location
-        for (locationInfo in navigineLocations) {
-            if (isUserLocationWithinNavigineLocation(locationInfo)) {
-                isLocationCanaryConnected = true
-                matchedLocation = locationInfo
-                break
+        val userGlobalPoint = GlobalPoint(userLatitude, userLongitude)
+        Log.d(TAG, "Checking if user is in a Canary location at: $userLatitude, $userLongitude")
+
+        // First try to find an exact match - if the user is within a building
+        for (entry in locationCoordinatesMap) {
+            val locationCoords = entry.value
+
+            if (locationCoords.originPoint != null) {
+                // Check if the user is within any zone of this location
+                if (isPointWithinAnyZone(userGlobalPoint, locationCoords)) {
+                    isLocationCanaryConnected = true
+                    matchedLocation = navigineLocations.find { it.id == locationCoords.id }
+                    Log.d(TAG, "User is within a zone in Canary location: ${locationCoords.name}")
+                    break
+                }
+
+                // Or check if the user is within the building boundaries
+                if (isPointWithinLocation(userGlobalPoint, locationCoords)) {
+                    isLocationCanaryConnected = true
+                    matchedLocation = navigineLocations.find { it.id == locationCoords.id }
+                    Log.d(TAG, "User is within Canary location: ${locationCoords.name}")
+                    break
+                }
+            }
+        }
+
+        // If no exact match, check proximity to any venue or the building itself
+        if (!isLocationCanaryConnected) {
+            // Use a proximity threshold - for example, 50 meters
+            val proximityThreshold = 50.0
+
+            for (entry in locationCoordinatesMap) {
+                val locationCoords = entry.value
+
+                if (locationCoords.originPoint != null) {
+                    // Check proximity to building origin
+                    val distanceToOrigin = calculateDistance(
+                        userLatitude, userLongitude,
+                        locationCoords.originPoint.latitude, locationCoords.originPoint.longitude
+                    )
+
+                    // Include the building's size in the threshold
+                    val buildingDiagonal = Math.sqrt(
+                        (locationCoords.width * locationCoords.width +
+                                locationCoords.height * locationCoords.height).toDouble()
+                    )
+                    val thresholdWithSize = buildingDiagonal + proximityThreshold
+
+                    if (distanceToOrigin <= thresholdWithSize) {
+                        isLocationCanaryConnected = true
+                        matchedLocation = navigineLocations.find { it.id == locationCoords.id }
+                        Log.d(TAG, "User is near Canary location: ${locationCoords.name} (${distanceToOrigin}m)")
+                        break
+                    }
+
+                    // Check proximity to any venue in the location
+                    val nearestVenueDistance = findDistanceToNearestVenue(userGlobalPoint, locationCoords)
+                    if (nearestVenueDistance <= proximityThreshold) {
+                        isLocationCanaryConnected = true
+                        matchedLocation = navigineLocations.find { it.id == locationCoords.id }
+                        Log.d(TAG, "User is near a venue in Canary location: ${locationCoords.name} (${nearestVenueDistance}m)")
+                        break
+                    }
+                }
+            }
+        }
+
+        // If still no match, try comparing by name (as a last resort)
+        if (!isLocationCanaryConnected && locationNameText.text.isNotEmpty()) {
+            val currentLocationName = locationNameText.text.toString().lowercase()
+
+            for (locationInfo in navigineLocations) {
+                if (locationInfo.name.lowercase().contains(currentLocationName) ||
+                    currentLocationName.contains(locationInfo.name.lowercase())) {
+
+                    isLocationCanaryConnected = true
+                    matchedLocation = locationInfo
+                    Log.d(TAG, "User is at Canary location by name match: ${locationInfo.name}")
+                    break
+                }
             }
         }
 
@@ -329,31 +541,203 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    private fun isUserLocationWithinNavigineLocation(locationInfo: LocationInfo): Boolean {
+    private fun isPointWithinLocation(globalPoint: GlobalPoint, locationCoords: LocationCoordinates): Boolean {
         try {
-            // We would need the global coordinates of the location to check
-            // This is a simplified check since we don't have direct access to location coordinates from LocationInfo
-            // In a real implementation, you would need to load the location details to get its coordinates
+            // Get the loaded location for this locationId
+            val locationId = locationCoords.id
+            val location = getLoadedLocation(locationId)
 
-            // For now, we'll just simulate the check based on a distance threshold
-            // In a real implementation, you would get the actual origin point from the location's sublocations
+            if (location != null) {
+                val sublocations = location.getSublocations()
+                // Use iterator to avoid ambiguity
+                val sublocationsIterator = sublocations.iterator() as Iterator<Sublocation>
+                for (sublocation in sublocationsIterator) {
+                    if (sublocation.getOriginPoint() == locationCoords.originPoint) {
+                        // Convert the global point to local coordinates
+                        val localPoint = sublocation.globalToLocal(globalPoint)
 
-            // Assuming some rough coordinates from the location info (this should be fetched in a real implementation)
-            val locationLatitude = 0.0 // Replace with actual location latitude
-            val locationLongitude = 0.0 // Replace with actual location longitude
-
-            val distance = calculateDistance(
-                userLatitude, userLongitude,
-                locationLatitude, locationLongitude
-            )
-
-            // If within 200 meters, consider it a match
-            return distance <= 200.0
+                        if (localPoint != null) {
+                            // Check if the point is within the rectangle
+                            return localPoint.getPoint().x >= 0 && localPoint.getPoint().x <= sublocation.getWidth() &&
+                                    localPoint.getPoint().y >= 0 && localPoint.getPoint().y <= sublocation.getHeight()
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking if user is within Navigine location: ${e.message}")
+            Log.e(TAG, "Error checking if point is within location: ${e.message}")
         }
 
         return false
+    }
+
+    private fun isPointWithinAnyZone(globalPoint: GlobalPoint, locationCoords: LocationCoordinates): Boolean {
+        try {
+            // Get the loaded location for this locationId
+            val locationId = locationCoords.id
+            val location = getLoadedLocation(locationId)
+
+            if (location != null) {
+                val sublocations = location.getSublocations()
+                // Use iterator to avoid ambiguity
+                val sublocationsIterator = sublocations.iterator() as Iterator<Sublocation>
+                for (sublocation in sublocationsIterator) {
+                    if (sublocation.getOriginPoint() == locationCoords.originPoint) {
+                        // Convert the global point to local coordinates
+                        val localPoint = sublocation.globalToLocal(globalPoint)
+
+                        if (localPoint != null) {
+                            // Check if the point is within any zone
+                            for (zone in locationCoords.zones) {
+                                if (zone.polygon != null && isPointInPolygon(localPoint.getPoint(), zone.polygon)) {
+                                    return true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking if point is within any zone: ${e.message}")
+        }
+
+        return false
+    }
+
+    private fun findDistanceToNearestVenue(globalPoint: GlobalPoint, locationCoords: LocationCoordinates): Double {
+        var minDistance = Double.MAX_VALUE
+
+        try {
+            // Get the loaded location for this locationId
+            val locationId = locationCoords.id
+            val location = getLoadedLocation(locationId)
+
+            if (location != null) {
+                val sublocations = location.getSublocations()
+                // Use iterator to avoid ambiguity
+                val sublocationsIterator = sublocations.iterator() as Iterator<Sublocation>
+                for (sublocation in sublocationsIterator) {
+                    if (sublocation.getOriginPoint() == locationCoords.originPoint) {
+                        // Convert the global point to local coordinates
+                        val localPoint = sublocation.globalToLocal(globalPoint)
+
+                        if (localPoint != null) {
+                            // Check distance to each venue
+                            for (venue in locationCoords.venues) {
+                                if (venue.point != null) {
+                                    val distance = Math.sqrt(
+                                        Math.pow(localPoint.getPoint().x - venue.point.x.toDouble(), 2.0) +
+                                                Math.pow(localPoint.getPoint().y - venue.point.y.toDouble(), 2.0)
+                                    )
+
+                                    if (distance < minDistance) {
+                                        minDistance = distance
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error finding distance to nearest venue: ${e.message}")
+        }
+
+        return minDistance
+    }
+
+    // Helper function to determine if a point is inside a polygon
+    private fun isPointInPolygon(point: Point, polygon: Polygon): Boolean {
+        // Implementation of ray casting algorithm
+        val x = point.x
+        val y = point.y
+        val polyPoints = polygon.getPoints()
+
+        if (polyPoints.size < 3) return false
+
+        var inside = false
+        var j = polyPoints.size - 1
+
+        for (i in polyPoints.indices) {
+            val xi = polyPoints[i].x
+            val yi = polyPoints[i].y
+            val xj = polyPoints[j].x
+            val yj = polyPoints[j].y
+
+            val intersect = ((yi > y) != (yj > y)) &&
+                    (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+
+            if (intersect) inside = !inside
+            j = i
+        }
+
+        return inside
+    }
+
+    private fun updateLocationInfo() {
+        if (isLocationCanaryConnected) {
+            locationInfoText.text = "This location is Canary Connected!"
+            locationInfoText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
+        } else {
+            locationInfoText.text = "This location is not Canary Connected"
+            locationInfoText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
+        }
+    }
+
+    private fun updateSuggestions() {
+        if (isLocationCanaryConnected && matchedLocation != null) {
+            // Get the matched location coordinates
+            val locationCoords = locationCoordinatesMap[matchedLocation!!.id]
+
+            if (locationCoords != null) {
+                // Extract venue names from the matched location
+                val venueNames = locationCoords.venues.map { it.name }
+
+                if (venueNames.isNotEmpty()) {
+                    runOnUiThread {
+                        val suggestionsAdapter = ArrayAdapter(
+                            this,
+                            android.R.layout.simple_list_item_1,
+                            venueNames
+                        )
+                        suggestionsListView.adapter = suggestionsAdapter
+                        Log.d(TAG, "Updated suggestions with ${venueNames.size} venues from ${locationCoords.name}")
+                    }
+                } else {
+                    Log.d(TAG, "No venues found for location ${locationCoords.name}")
+                    // Use default suggestions
+                    setDefaultSuggestions()
+                }
+            } else {
+                Log.d(TAG, "No coordinates data for matched location: ${matchedLocation!!.name}")
+                // Use default suggestions
+                setDefaultSuggestions()
+            }
+        } else {
+            // Not in a Canary location, use default suggestions
+            setDefaultSuggestions()
+        }
+    }
+
+    private fun setDefaultSuggestions() {
+        // Set some default suggestions when not in a Canary location
+        val defaultSuggestions = listOf(
+            "Nearby Places",
+            "Restaurants",
+            "Cafes",
+            "Shopping",
+            "Hotels"
+        )
+
+        runOnUiThread {
+            val suggestionsAdapter = ArrayAdapter(
+                this,
+                android.R.layout.simple_list_item_1,
+                defaultSuggestions
+            )
+            suggestionsListView.adapter = suggestionsAdapter
+            Log.d(TAG, "Set default suggestions")
+        }
     }
 
     private fun calculateDistance(
@@ -373,77 +757,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
         return r * c // Distance in meters
-    }
-
-    private fun updateLocationInfo() {
-        if (isLocationCanaryConnected) {
-            locationInfoText.text = "This location is Canary Connected!"
-            locationInfoText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
-        } else {
-            locationInfoText.text = "This location is not Canary Connected"
-            locationInfoText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
-        }
-    }
-
-    private fun updateSuggestions() {
-        if (isLocationCanaryConnected && matchedLocation != null) {
-            // Location is Canary connected, show venues from the matched location
-            loadVenuesForLocation(matchedLocation!!.id)
-        }
-        // If not Canary connected, keep existing suggestions (do nothing)
-    }
-
-    private fun loadVenuesForLocation(locationId: Int) {
-        try {
-            // Set the location ID
-            NavigineSdkManager.locationManager.setLocationId(locationId)
-
-            /* Set a listener to know when the location is loaded
-            val locationListener = object : LocationListener() {
-                override fun onLocationLoaded(location: Location?) {
-                    if (location != null) {
-                        val sublocations = location.sublocations
-                        if (!sublocations.isNullOrEmpty()) {
-                            val venueSuggestions = mutableListOf<String>()
-                            for (sublocation in sublocations) {
-                               val venues = sublocation.venues
-                                if (!venues.isNullOrEmpty()) {
-                                    for (venue in venues) {
-                                       venueSuggestions.add(venue.name)
-                                    }
-                                }
-                            }
-
-                            runOnUiThread {
-                                val suggestionsAdapter = ArrayAdapter(
-                                    this@MainActivity,
-                                    android.R.layout.simple_list_item_1,
-                                    venueSuggestions
-                                )
-                                suggestionsListView.adapter = suggestionsAdapter
-                            }
-                        }
-                    }
-                }
-
-                override fun onLocationFailed() {
-                    Log.e(TAG, "Failed to load Navigine location details: ${}")
-                }
-            }
-
-
-
-            // Add the listener using the correct method
-            NavigineSdkManager.locationManager.addLocationListener(locationListener)
-
-            // Based on error message, there is no loadLocation method.
-            // Setting the location ID likely triggers the loading process automatically.
-            // If you need to trigger loading explicitly, check the SDK documentation
-            // for the correct method or approach.*/
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading venues for location: ${e.message}")
-        }
     }
 
     override fun onRequestPermissionsResult(
