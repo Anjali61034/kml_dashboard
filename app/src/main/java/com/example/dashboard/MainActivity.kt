@@ -60,6 +60,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var locationInfoText: TextView
     private lateinit var micButton: ImageView
     private lateinit var suggestionsListView: ListView
+    private lateinit var suggestionCards: Array<androidx.cardview.widget.CardView>
+    private lateinit var suggestionTexts: Array<TextView>
+    private lateinit var suggestionIcons: Array<ImageView>
 
     // Current user location
     private var userLatitude: Double = 0.0
@@ -102,7 +105,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         locationNameText = findViewById(R.id.locationNameText)
         locationInfoText = findViewById(R.id.locationInfoText)
         micButton = findViewById(R.id.micButton)
-        suggestionsListView = findViewById(R.id.suggestionsListView)
+
+        suggestionCards = arrayOf(
+            findViewById(R.id.suggestionCard1),
+            findViewById(R.id.suggestionCard2),
+            findViewById(R.id.suggestionCard3),
+            findViewById(R.id.suggestionCard4)
+        )
+
+        suggestionTexts = arrayOf(
+            findViewById(R.id.suggestionText1),
+            findViewById(R.id.suggestionText2),
+            findViewById(R.id.suggestionText3),
+            findViewById(R.id.suggestionText4)
+        )
 
         // Initialize the map fragment
         val mapFragment = supportFragmentManager.findFragmentById(R.id.mapFragment) as SupportMapFragment
@@ -321,8 +337,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
                 // Try this signature for the method that handles failures
                 //override fun onFailed(error: Error) {
-                   // Log.e(TAG, "Failed to load location details for ID: $locationId, error: ${error.message}")
-               // }
+                // Log.e(TAG, "Failed to load location details for ID: $locationId, error: ${error.message}")
+                // }
             }
 
             NavigineSdkManager.locationManager.addLocationListener(locationListener)
@@ -695,13 +711,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
                 if (venueNames.isNotEmpty()) {
                     runOnUiThread {
-                        val suggestionsAdapter = ArrayAdapter(
-                            this,
-                            android.R.layout.simple_list_item_1,
-                            venueNames
-                        )
-                        suggestionsListView.adapter = suggestionsAdapter
-                        Log.d(TAG, "Updated suggestions with ${venueNames.size} venues from ${locationCoords.name}")
+                        // Update up to 4 suggestion cards with venue names
+                        val maxCards = minOf(venueNames.size, 4)
+                        for (i in 0 until maxCards) {
+                            suggestionTexts[i].text = venueNames[i]
+                            // Keep the same icon or set a default venue icon
+                            // suggestionIcons[i].setImageResource(R.drawable.ic_venue) // Optional: use a venue-specific icon
+                        }
+
+                        Log.d(TAG, "Updated ${maxCards} suggestion cards with venues from ${locationCoords.name}")
                     }
                 } else {
                     Log.d(TAG, "No venues found for location ${locationCoords.name}")
@@ -719,24 +737,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    // Replace the setDefaultSuggestions() method with this:
     private fun setDefaultSuggestions() {
-        // Set some default suggestions when not in a Canary location
-        val defaultSuggestions = listOf(
-            "Nearby Places",
-            "Restaurants",
-            "Cafes",
-            "Shopping",
-            "Hotels"
-        )
+        try {
+            // Set default suggestions for the cards
+            val defaultTexts = arrayOf("Reception", "Office", "Hall", "Doctor")
 
-        runOnUiThread {
-            val suggestionsAdapter = ArrayAdapter(
-                this,
-                android.R.layout.simple_list_item_1,
-                defaultSuggestions
-            )
-            suggestionsListView.adapter = suggestionsAdapter
-            Log.d(TAG, "Set default suggestions")
+            // Use safe image resource setting
+            runOnUiThread {
+                if (!isFinishing) {  // Check if activity is still active
+                    // Set text for each suggestion
+                    for (i in 0 until 4) {
+                        suggestionTexts[i].text = defaultTexts[i]
+
+                        // Only set icon if activity is still running
+                        try {
+                            // Don't change the icons - keep whatever icons were set in XML
+                            // This avoids resource-related crashes
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error setting suggestion icon: ${e.message}")
+                        }
+                    }
+                    Log.d(TAG, "Set default suggestions")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in setDefaultSuggestions: ${e.message}")
+            e.printStackTrace()
         }
     }
 
