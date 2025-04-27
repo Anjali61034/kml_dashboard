@@ -1,22 +1,24 @@
-package com.example.canary
+package com.example.dashboard
 
 import android.app.Application
 import android.util.DisplayMetrics
 import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
+
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.navigine.sdk.Navigine
 
-class NavigineApplication : Application(), LifecycleObserver {
+class NavigineApplication : Application(), DefaultLifecycleObserver {
 
     companion object {
         lateinit var appContext: Application
     }
 
     override fun onCreate() {
-        super.onCreate()
+        super<Application>.onCreate()
         appContext = this
 
         // Initialize display metrics if needed
@@ -29,48 +31,48 @@ class NavigineApplication : Application(), LifecycleObserver {
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_START)
-    private fun onEnterForeground() {
+    override fun onStart(owner: LifecycleOwner) {
+        super.onStart(owner)
         try {
             Navigine.setMode(Navigine.Mode.NORMAL)
         } catch (e: Throwable) {
-            Log.e("NavigineSDK", "Navigine SDK is not initialized yet")
+            Log.e("NavigineSDK", "Navigine SDK is not initialized yet", e)
         }
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
-    private fun onResume() {
+    override fun onResume(owner: LifecycleOwner) {
+        super.onResume(owner)
         try {
             Navigine.setMode(Navigine.Mode.NORMAL)
         } catch (e: Throwable) {
-            Log.e("NavigineSDK", "Navigine SDK is not initialized yet")
+            Log.e("NavigineSDK", "Navigine SDK is not initialized yet", e)
         }
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-    private fun onPause() {
+    override fun onPause(owner: LifecycleOwner) {
+        super.onPause(owner)
         try {
             Navigine.setMode(Navigine.Mode.BACKGROUND)
         } catch (e: Throwable) {
-            Log.e("NavigineSDK", "Navigine SDK is not initialized yet")
+            Log.e("NavigineSDK", "Navigine SDK is not initialized yet", e)
         }
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_STOP)
-    private fun onEnterBackground() {
+    override fun onStop(owner: LifecycleOwner) {
+        super.onStop(owner)
         try {
             Navigine.setMode(Navigine.Mode.BACKGROUND)
         } catch (e: Throwable) {
-            Log.e("NavigineSDK", "Navigine SDK is not initialized yet")
+            Log.e("NavigineSDK", "Navigine SDK is not initialized yet", e)
         }
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-    private fun onDestroy() {
+    override fun onDestroy(owner: LifecycleOwner) {
+        super.onDestroy(owner)
         try {
             Navigine.setMode(Navigine.Mode.BACKGROUND)
         } catch (e: Throwable) {
-            Log.e("NavigineSDK", "Navigine SDK is not initialized yet")
+            Log.e("NavigineSDK", "Navigine SDK is not initialized yet", e)
         }
     }
 }

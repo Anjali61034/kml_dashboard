@@ -10,8 +10,8 @@ import com.navigine.idl.java.NavigineSdk
 
 
 object NavigineSdkManager {
-    // Configuration
-    private const val mUserHash = "A9A7-BAAC-6B7F-313D" // Your hash
+
+    private const val mUserHash = "A9A7-BAAC-6B7F-313D"
     private const val mLocationServer = "https://ips.navigine.com"
 
     private lateinit var mNavigineSdk: NavigineSdk
@@ -23,14 +23,12 @@ object NavigineSdkManager {
     val measurementManager: MeasurementManager by lazy { mNavigineSdk.getMeasurementManager(locationManager) }
 
     fun initialize(context: Context) {
-        // Initialize Navigine SDK
         Navigine.initialize(context)
 
-        // Get SDK instance
         mNavigineSdk = NavigineSdk.getInstance()
 
-        // Configure SDK
-        mNavigineSdk.setUserHash(mUserHash); // your user hash from the server
+
+        mNavigineSdk.setUserHash(mUserHash);
         mNavigineSdk.setServer(mLocationServer);
 
 

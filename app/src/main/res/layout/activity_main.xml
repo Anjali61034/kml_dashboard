@@ -36,6 +36,21 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/titleText">
 
+            <View
+                android:id="@+id/canaryStatusIndicator"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:background="@drawable/circle_indicator"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/canaryStatusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Status: Disconnected"
+                android:textSize="16sp"
+                android:layout_marginStart="8dp"/>
+
             <fragment
                 android:id="@+id/mapFragment"
                 android:name="com.google.android.gms.maps.SupportMapFragment"
