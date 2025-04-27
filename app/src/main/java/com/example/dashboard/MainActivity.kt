@@ -3,6 +3,8 @@ package com.example.dashboard
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.location.Address
+import android.location.Geocoder
 import android.location.Location
 import android.os.Bundle
 import android.util.Log
@@ -13,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.databinding.DataBindingUtil
 import com.example.dashboard.databinding.ActivityMainBinding
 import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -21,12 +24,25 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.maps.model.PolygonOptions
+import com.example.canary.NavigineSdkManager
+import com.google.android.gms.location.Priority
+import android.speech.RecognizerIntent
+import android.content.Intent
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.SearchView
+import java.util.Locale
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var binding: ActivityMainBinding
     private lateinit var locationManager: LocationManager
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var googleMap: GoogleMap? = null
+
+    private lateinit var speechRecognitionLauncher: ActivityResultLauncher<Intent>
+
+    // Initialize location request
+    private lateinit var locationRequest: LocationRequest
 
     private var userLatitude = 0.0
     private var userLongitude = 0.0
@@ -35,17 +51,41 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     companion object {
         private const val TAG = "MainActivity"
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
+        private const val recordAudioPermissionRequestCode = 1002
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
 
+        // Initialize speech recognition launcher
+        speechRecognitionLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val spokenText: ArrayList<String>? = result.data?.getStringArrayListExtra(
+                    RecognizerIntent.EXTRA_RESULTS
+                )
+                spokenText?.get(0)?.let { text ->
+                    binding.searchView.setQuery(text, false) // Assuming searchView is in the binding
+                }
+            }
+        }
+
         // Initialize location manager
         locationManager = LocationManager(this)
 
         // Initialize location services
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        // Create LocationRequest using the Builder
+        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
+            .setMinUpdateDistanceMeters(10f)  // Only update if the user has moved 10 meters
+            .setMaxUpdateDelayMillis(5000)  // Fastest interval for updates (5 seconds)
+            .build()
+
+        // Initialize Navigine SDK Manager
+        initializeNavigine()
 
         // Set up map
         val mapFragment = supportFragmentManager
@@ -57,6 +97,57 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         // Request location permissions
         requestLocationPermissions()
+
+        binding.micButton.setOnClickListener {
+            // Check for audio recording permission
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.RECORD_AUDIO
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                // Request permission
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    recordAudioPermissionRequestCode
+                )
+            } else {
+                // Permission already granted, start speech recognition
+                startSpeechRecognition()
+            }
+        }
+
+        binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                // Handle search here
+                return false
+            }
+
+            override fun onQueryTextChange(newText: String?): Boolean {
+                return false
+            }
+        })
+    }
+
+    private fun startSpeechRecognition() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now")
+        }
+
+        try {
+            speechRecognitionLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Speech recognition not supported on this device",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun setupSuggestionCards() {
@@ -123,9 +214,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     Toast.LENGTH_LONG
                 ).show()
             }
+        } else if (requestCode == recordAudioPermissionRequestCode) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startSpeechRecognition()
+            } else {
+                Toast.makeText(this, "Audio recording permission denied.", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun getLastLocation() {
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -143,6 +241,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 // Update map with user location
                 updateMapWithUserLocation()
 
+                // Fetch address details based on user location
+                fetchAddressDetails(userLatitude, userLongitude)
+
                 // Check if user is within a known location
                 checkIfLocationIsCanaryConnected()
             } ?: run {
@@ -152,6 +253,39 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     Toast.LENGTH_LONG
                 ).show()
             }
+        }
+    }
+
+    private fun fetchAddressDetails(latitude: Double, longitude: Double) {
+        val geocoder = Geocoder(this, Locale.getDefault())
+        Thread {
+            val addresses: List<Address>? = geocoder.getFromLocation(latitude, longitude, 1)
+            addresses?.let { processAddresses(it) } // Safe call to process addresses if not null
+        }.start()
+    }
+
+    private fun processAddresses(addresses: List<Address>) {
+        if (addresses.isNotEmpty()) {
+            val address = addresses[0]
+            // Get location name (could be locality, subLocality, or thoroughfare)
+            val locationName = address.featureName ?: address.locality ?: address.subLocality ?: address.thoroughfare ?: "Unknown Location"
+
+            // Update UI with location name
+            runOnUiThread {
+                binding.locationNameText.text = locationName
+
+                // Update location info text based on Canary connection status
+                updateLocationInfo()
+            }
+        }
+    }
+
+    private fun updateLocationInfo() {
+        // Example implementation for updating location info. Adjust as necessary.
+        binding.locationInfoText.text = if (isLocationCanaryConnected) {
+            "This location is Canary Connected!"
+        } else {
+            "This location is not Canary Connected"
         }
     }
 
@@ -198,7 +332,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         isLocationCanaryConnected = false
 
         // Make sure we have valid user coordinates
-        if (userLatitude == 0.0 || userLongitude == 0.0) {
+        if (userLatitude == 0.0 && userLongitude == 0.0) {
             Log.d(TAG, "Invalid user coordinates")
             updateLocationUI(null)
             return
@@ -217,24 +351,34 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 updateSuggestionCards("FIRST FLOOR")
             }
         } else {
-            val distance = locationManager.getDistanceToBoundary()
-            Log.d(TAG, "User is not in any known location. Nearest boundary: $distance meters")
-            updateLocationUI(null)
+            // User is not in a known location
+            val currentLocationString = "Your current location: Latitude: $userLatitude, Longitude: $userLongitude"
+            Log.d(TAG, "User is not in any known location. $currentLocationString")
+            updateLocationUI(currentLocationString)
         }
     }
 
-    private fun updateLocationUI(location: LocationManager.LocationInfo?) {
-        if (location != null && isLocationCanaryConnected) {
-            binding.locationStatusText.text = "You're at"
-            binding.locationNameText.text = location.name
-            binding.locationInfoText.text = "This location is Canary Connected!"
-            binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt())
-            binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_green)
-            binding.canaryStatusText.text = "Status: Connected"
-            binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
-        } else if (location != null) {
-            binding.locationStatusText.text = "You're at"
-            binding.locationNameText.text = location.name
+    private fun updateLocationUI(locationInfo: Any?) {
+        if (locationInfo is LocationManager.LocationInfo) {
+            if (isLocationCanaryConnected) {
+                binding.locationStatusText.text = "You're at"
+                binding.locationNameText.text = locationInfo.name
+                binding.locationInfoText.text = "This location is Canary Connected!"
+                binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt())
+                binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_green)
+                binding.canaryStatusText.text = "Status: Connected"
+                binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+            } else {
+                binding.locationStatusText.text = "You're at"
+                binding.locationNameText.text = locationInfo.name
+                binding.locationInfoText.text = "This location is not Canary Connected"
+                binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt())
+                binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
+                binding.canaryStatusText.text = "Status: Disconnected"
+                binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+            }
+        } else if (locationInfo is String) {
+            binding.locationNameText.text = locationInfo
             binding.locationInfoText.text = "This location is not Canary Connected"
             binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt())
             binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
@@ -248,6 +392,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_gray)
             binding.canaryStatusText.text = "Status: Disconnected"
             binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+        }
+    }
+
+    private fun initializeNavigine() {
+        try {
+            // Initialize SDK Manager
+            NavigineSdkManager.initialize(this)
+            Log.d("Navigine", "SDK initialized successfully")
+        } catch (e: Exception) {
+            Log.e("Navigine", "Error initializing SDK: ${e.message}")
         }
     }
 
