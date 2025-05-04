@@ -1,3 +1,11 @@
 <resources>
-    <string name="app_name">Dashboard</string>
+    <string name="app_name">Canary</string>
+    <string name="web_client_id">149164117155-j0thpc1d7vip4ipo43rnhat3fh6u8aq0.apps.googleusercontent.com</string> <!-- Replace with your actual Google web client ID -->
+    <string name="login_failed">Login failed</string>
+    <string name="signup_failed">Sign up failed</string>
+    <string name="login_successful">Login successful</string>
+    <string name="signup_successful">Sign up successful</string>
+    <string name="email_password_required">Email and password are required</string>
+    <string name="name_required">Name is required</string>
+    <string name="google_sign_in_failed">Google sign in failed</string>
 </resources>

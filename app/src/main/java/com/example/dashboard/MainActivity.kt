@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        supportActionBar?.hide()
 
         // Initialize Navigine SDK Manager at the very start of onCreate
         initializeNavigineAndLoadLocations()
