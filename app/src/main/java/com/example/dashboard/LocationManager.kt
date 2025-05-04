@@ -19,7 +19,7 @@ class LocationManager(private val context: Context) {
 
     // Data class to store location information
     data class LocationInfo(
-        val id: String,
+        val id: Int,
         val name: String,
         val polygonPoints: List<LatLng>,
         val isCanaryConnected: Boolean = false
@@ -53,7 +53,6 @@ class LocationManager(private val context: Context) {
             parser.setInput(inputStream, null)
 
             var eventType = parser.eventType
-            var currentLocationId = ""
             var currentLocationName = ""
             var coordinates = ""
             var inCoordinates = false
@@ -63,7 +62,6 @@ class LocationManager(private val context: Context) {
                     XmlPullParser.START_TAG -> {
                         when (parser.name) {
                             "Placemark" -> {
-                                currentLocationId = ""
                                 currentLocationName = ""
                                 coordinates = ""
                             }
@@ -75,20 +73,21 @@ class LocationManager(private val context: Context) {
                                     }
                                 }
                             }
-                            "styleUrl" -> {
-                                if (parser.next() == XmlPullParser.TEXT) {
-                                    val styleUrl = parser.text.trim()
-                                    if (styleUrl.contains("-")) {
-                                        currentLocationId = styleUrl.substringAfterLast("-")
-                                    }
-                                }
-                            }
                             "coordinates" -> {
                                 inCoordinates = true
                                 if (parser.next() == XmlPullParser.TEXT) {
                                     coordinates = parser.text.trim()
                                 }
                             }
+                            // Remove or ignore the styleUrl extraction logic for the ID
+                            // "styleUrl" -> {
+                            //     if (parser.next() == XmlPullParser.TEXT) {
+                            //         val styleUrl = parser.text.trim()
+                            //         if (styleUrl.contains("-")) {
+                            //             currentLocationId = styleUrl.substringAfterLast("-")
+                            //         }
+                            //     }
+                            // }
                         }
                     }
                     XmlPullParser.END_TAG -> {
@@ -97,18 +96,35 @@ class LocationManager(private val context: Context) {
                                 if (currentLocationName.isNotEmpty() && coordinates.isNotEmpty()) {
                                     val polygonPoints = parseCoordinates(coordinates)
                                     if (polygonPoints.isNotEmpty()) {
+                                        val id: Int // Declare ID as Int
+                                        val isCanaryConnected: Boolean
+
+                                        // Assign the correct ID and isCanaryConnected based on the name
+                                        when (currentLocationName.trim()) {
+                                            "Delhi High Court" -> {
+                                                id = 1916
+                                                isCanaryConnected = true // Adjust based on your logic
+                                            }
+                                            "St Stephens Hospital" -> {
+                                                id = 1890
+                                                isCanaryConnected = true // Adjust based on your logic
+                                            }
+                                            // Add more cases for other locations if needed
+                                            else -> {
+                                                Log.w(TAG, "Unknown location name: $currentLocationName. Skipping.")
+                                                continue // Skip if the location name is not recognized
+                                            }
+                                        }
+
                                         locations.add(
                                             LocationInfo(
-                                                id = currentLocationId.ifEmpty { "unknown" },
+                                                id = id.toInt(), // Keep id as String in LocationInfo for now, but we'll change this next
                                                 name = currentLocationName,
                                                 polygonPoints = polygonPoints,
-                                                isCanaryConnected = currentLocationName.contains("St", ignoreCase = true) &&
-                                                        currentLocationName.contains("Stephen", ignoreCase = true) &&
-                                                        currentLocationName.contains("Hospital", ignoreCase = true) ||
-                                                        currentLocationName.contains("Delhi High Court", ignoreCase = true) // Example for the second location
+                                                isCanaryConnected = isCanaryConnected
                                             )
                                         )
-                                        Log.d(TAG, "Added location: $currentLocationName with ${polygonPoints.size} points")
+                                        Log.d(TAG, "Added location: $currentLocationName with ID $id and ${polygonPoints.size} points")
                                     }
                                 }
                             }
