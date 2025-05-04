@@ -14,6 +14,7 @@ class SignupActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        supportActionBar?.hide()
 
         binding = ActivitySignupBinding.inflate(layoutInflater) // Change this
         setContentView(binding.root)
