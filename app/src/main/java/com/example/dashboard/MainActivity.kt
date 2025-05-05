@@ -180,7 +180,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val maxCards = minOf(venues.size, 4)
             val defaultTexts = arrayOf("Reception", "Office", "Hall", "Doctor") // Fallback texts
 
-            // Safely access venue names and update text views
+            // Safely access venue names from the provided list
             binding.suggestionText1.text = venues.getOrNull(0)?.getName() ?: defaultTexts[0]
             binding.suggestionText2.text = venues.getOrNull(1)?.getName() ?: defaultTexts[1]
             binding.suggestionText3.text = venues.getOrNull(2)?.getName() ?: defaultTexts[2]
@@ -551,20 +551,26 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun processLoadedLocation(location: NavigineLocation) {
-        // Get all sublocations for this location
         val sublocations = location.getSublocations()
+        val allVenues = mutableListOf<Venue>() // Create a mutable list to hold all venues
 
-        // Find the sublocation relevant to the user's current position (this might need more sophisticated logic)
-        // For simplicity, let's assume we want venues from the first sublocation with venues.
-        val relevantSublocation = sublocations.firstOrNull { it.getVenues().isNotEmpty() }
+        // Iterate through all sublocations
+        for (sublocation in sublocations) {
+            // Get venues from the current sublocation and add them to the list
+            allVenues.addAll(sublocation.getVenues().toList() as List<Venue>)
+        }
 
-        if (relevantSublocation != null) {
-            val venues = relevantSublocation.getVenues().toList() as List<Venue> // Cast to List<Venue>
-            Log.d(TAG, "Found ${venues.size} venues in sublocation: ${relevantSublocation.getName()}")
-            updateSuggestionCards(venues)
+        Log.d(TAG, "Found a total of ${allVenues.size} venues across all sublocations.")
+
+        if (allVenues.isNotEmpty()) {
+            // Now you have a list of all venues from all sublocations.
+            // You might want to sort or filter this list before updating suggestion cards.
+            // For example, you could sort alphabetically or by some other criteria.
+            // For now, let's just use the first few from the combined list.
+            updateSuggestionCards(allVenues) // Pass the combined list of venues
         } else {
-            Log.d(TAG, "No sublocation with venues found for location: ${location.getName()}")
-            setDefaultSuggestions() // Use default suggestions if no venues are found
+            Log.d(TAG, "No venues found in any sublocation for location: ${location.getName()}")
+            setDefaultSuggestions() // Use default suggestions if no venues are found in any sublocation
         }
     }
 
