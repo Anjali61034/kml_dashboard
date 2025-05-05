@@ -44,6 +44,7 @@
         <activity
             android:name=".SignupActivity"
             android:exported="false" />
+        <activity android:name=".SearchActivity"/>
 
         <activity
             android:name=".MainActivity"

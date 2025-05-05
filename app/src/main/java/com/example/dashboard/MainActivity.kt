@@ -32,7 +32,8 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.maps.model.PolygonOptions
-import com.navigine.idl.java.Location as NavigineLocation // Alias to avoid conflict
+import com.google.gson.Gson
+import com.navigine.idl.java.Location as NavigineLocation
 import com.navigine.idl.java.LocationInfo
 import com.navigine.idl.java.LocationListener
 import com.navigine.idl.java.LocationListListener
@@ -57,11 +58,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var isLocationCanaryConnected = false
     private var matchedNavigineLocationInfo: LocationInfo? = null // Store the matched Navigine LocationInfo
     private val loadedNavigineLocations = HashMap<Int, NavigineLocation>() // Store loaded Navigine Location details
+    private var currentVenues: List<Venue> = emptyList() // Store the list of venues from the current location
 
     companion object {
         private const val TAG = "MainActivity"
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
         private const val recordAudioPermissionRequestCode = 1002
+        const val EXTRA_VENUE_LIST_JSON = "venue_list_json" // Define a constant for the Intent extra key
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,8 +85,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     RecognizerIntent.EXTRA_RESULTS
                 )
                 spokenText?.get(0)?.let { text ->
-                    binding.searchView.setQuery(text, false) // Assuming searchView is in the binding
+                    Log.d(TAG, "Speech recognition result: $text")
+                    // Now, navigate to SearchActivity with the spoken text
+                    // and the *current* venues (which should be loaded if in a connected location)
+                    navigateToSearchActivity(text, currentVenues)
+                } ?: run {
+                    Log.w(TAG, "Speech recognition result is empty or null.")
+                    // Handle the case where no speech was recognized
+                    Toast.makeText(this, "Speech not recognized.", Toast.LENGTH_SHORT).show()
                 }
+            } else if (result.resultCode == RESULT_CANCELED) {
+                Log.d(TAG, "Speech recognition cancelled.")
+                // Handle cancelled speech recognition if needed
+            } else {
+                Log.e(TAG, "Speech recognition failed with result code: ${result.resultCode}")
+                // Handle other potential errors
+                Toast.makeText(this, "Speech recognition failed.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -111,6 +128,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         requestLocationPermissions()
 
         binding.micButton.setOnClickListener {
+            Log.d(TAG, "Mic button clicked.")
             // Check for audio recording permission
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -129,16 +147,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
-        binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?): Boolean {
-                // Handle search here
-                return false
-            }
+        // Set a click listener on the RelativeLayout containing the SearchView
+        binding.searchLayout.setOnClickListener {
+            Log.d(TAG, "Search layout clicked.")
+            // When the search area is clicked, immediately navigate to SearchActivity
+            // with the current venues list.
+            navigateToSearchActivity(null, currentVenues) // Pass null for initial query if clicked directly
+        }
 
-            override fun onQueryTextChange(newText: String?): Boolean {
-                return false
-            }
-        })
 
         // Setup click listeners for suggestion cards
         binding.suggestionCard1.setOnClickListener { handleSuggestionCardClick(binding.suggestionText1.text.toString()) }
@@ -151,6 +167,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // Handle the click on a suggestion card, e.g., initiate navigation or display information
         Toast.makeText(this, "Tapped on: $suggestionText", Toast.LENGTH_SHORT).show()
         // You would typically add logic here to perform an action based on the suggestion
+        // If you want to navigate to SearchActivity with the suggestion, you could do:
+        // navigateToSearchActivity(suggestionText, currentVenues)
     }
 
     private fun startSpeechRecognition() {
@@ -164,8 +182,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
         try {
+            Log.d(TAG, "Launching speech recognition intent.")
             speechRecognitionLauncher.launch(intent)
         } catch (e: Exception) {
+            Log.e(TAG, "Error launching speech recognition: ${e.message}", e)
             Toast.makeText(
                 this,
                 "Speech recognition not supported on this device",
@@ -202,6 +222,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             // Assuming you have default icons set in your XML
             // binding.suggestionIcon1.setImageResource(R.drawable.default_icon) // Example
             Log.d(TAG, "Set default suggestions")
+
+            // When setting default suggestions, also clear the current venues list
+            currentVenues = emptyList()
         }
     }
 
@@ -370,6 +393,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun checkIfLocationIsCanaryConnected() {
         isLocationCanaryConnected = false
         matchedNavigineLocationInfo = null // Reset matched location info
+        currentVenues = emptyList() // Clear previous venues
 
         // Make sure we have valid user coordinates
         if (userLatitude == 0.0 && userLongitude == 0.0) {
@@ -562,6 +586,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         Log.d(TAG, "Found a total of ${allVenues.size} venues across all sublocations.")
 
+        // Store the list of venues
+        currentVenues = allVenues
+
         if (allVenues.isNotEmpty()) {
             // Now you have a list of all venues from all sublocations.
             // You might want to sort or filter this list before updating suggestion cards.
@@ -571,6 +598,37 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         } else {
             Log.d(TAG, "No venues found in any sublocation for location: ${location.getName()}")
             setDefaultSuggestions() // Use default suggestions if no venues are found in any sublocation
+        }
+    }
+
+    // Function to handle navigation to SearchActivity
+    private fun navigateToSearchActivity(initialQuery: String?, venues: List<Venue>) {
+        Log.d(TAG, "Attempting to navigate to SearchActivity with query: $initialQuery and ${venues.size} venues.")
+        val intent = Intent(this, SearchActivity::class.java)
+        if (initialQuery != null) {
+            intent.putExtra("initial_query", initialQuery) // Pass the initial query if available
+        }
+
+        // Serialize the list of venues to JSON and pass it
+        val gson = Gson()
+        try {
+            val venueListJson = gson.toJson(venues)
+            intent.putExtra(EXTRA_VENUE_LIST_JSON, venueListJson)
+            Log.d(TAG, "Venues serialized successfully.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error serializing venues: ${e.message}", e)
+            // Handle serialization error, maybe pass an empty list or show an error
+            intent.putExtra(EXTRA_VENUE_LIST_JSON, "[]") // Pass an empty JSON array
+            Toast.makeText(this, "Error preparing venue data for search.", Toast.LENGTH_SHORT).show()
+        }
+
+
+        try {
+            startActivity(intent)
+            Log.d(TAG, "SearchActivity launched.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error launching SearchActivity: ${e.message}", e)
+            Toast.makeText(this, "Could not open search screen.", Toast.LENGTH_SHORT).show()
         }
     }
 
