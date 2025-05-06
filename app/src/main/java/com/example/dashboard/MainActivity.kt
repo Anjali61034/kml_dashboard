@@ -1,3 +1,4 @@
+// MainActivity.kt
 package com.example.dashboard
 
 import android.Manifest
@@ -11,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.util.Log
+import android.view.View
 import android.widget.SearchView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
@@ -32,12 +34,13 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.maps.model.PolygonOptions
-import com.google.gson.Gson
+import com.example.dashboard.VenueData
+import com.google.gson.Gson // Keep Gson for serialization
 import com.navigine.idl.java.Location as NavigineLocation
 import com.navigine.idl.java.LocationInfo
 import com.navigine.idl.java.LocationListener
 import com.navigine.idl.java.LocationListListener
-import com.navigine.idl.java.Venue
+import com.navigine.idl.java.Venue // Keep Navigine Venue for processing in MainActivity
 import java.io.IOException
 import java.util.Locale
 import java.util.HashMap
@@ -58,7 +61,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var isLocationCanaryConnected = false
     private var matchedNavigineLocationInfo: LocationInfo? = null // Store the matched Navigine LocationInfo
     private val loadedNavigineLocations = HashMap<Int, NavigineLocation>() // Store loaded Navigine Location details
-    private var currentVenues: List<Venue> = emptyList() // Store the list of venues from the current location
+    private var currentVenues: List<Venue> = emptyList() // Store the list of Navigine venues from the current location
 
     companion object {
         private const val TAG = "MainActivity"
@@ -146,14 +149,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 startSpeechRecognition()
             }
         }
-
-        // Set a click listener on the RelativeLayout containing the SearchView
         binding.searchLayout.setOnClickListener {
             Log.d(TAG, "Search layout clicked.")
             // When the search area is clicked, immediately navigate to SearchActivity
             // with the current venues list.
             navigateToSearchActivity(null, currentVenues) // Pass null for initial query if clicked directly
         }
+
+// Make sure the entire search bar is clickable, not just the icon
+        binding.searchView.setOnClickListener {
+            Log.d(TAG, "Search view clicked.")
+            // Navigate to search activity when search view is clicked
+            navigateToSearchActivity(null, currentVenues)
+        }
+
+// Optional: Disable the actual search functionality on the SearchView in MainActivity
+// since we're handling it in SearchActivity
+        binding.searchView.isClickable = true
+        binding.searchView.isSubmitButtonEnabled = false
+        binding.searchView.setOnQueryTextListener(null) // Remove any existing listeners
 
 
         // Setup click listeners for suggestion cards
@@ -443,7 +457,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt())// Use a color resource
                 binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_green)
                 binding.canaryStatusText.text = "Status: Connected"
-                binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+                binding.canaryStatusIndicator.visibility = View.VISIBLE
             } else {
                 binding.locationStatusText.text = "You're at"
                 binding.locationNameText.text = locationInfo.name
@@ -451,7 +465,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
                 binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
                 binding.canaryStatusText.text = "Status: Disconnected"
-                binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+                binding.canaryStatusIndicator.visibility = View.VISIBLE
             }
         } else if (locationInfo is String) {
             binding.locationStatusText.text = "You're at" // or "Current Location:"
@@ -460,7 +474,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
             binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
             binding.canaryStatusText.text = "Status: Disconnected"
-            binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+            binding.canaryStatusIndicator.visibility = View.VISIBLE
         } else {
             binding.locationStatusText.text = "You're not at a known location"
             binding.locationNameText.text = "Unknown Area"
@@ -468,7 +482,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
             binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_gray)
             binding.canaryStatusText.text = "Status: Disconnected"
-            binding.canaryStatusIndicator.visibility = android.view.View.VISIBLE
+            binding.canaryStatusIndicator.visibility = View.VISIBLE
         }
     }
 
@@ -576,17 +590,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun processLoadedLocation(location: NavigineLocation) {
         val sublocations = location.getSublocations()
-        val allVenues = mutableListOf<Venue>() // Create a mutable list to hold all venues
+        val allVenues = mutableListOf<Venue>() // Create a mutable list to hold all Navigine venues
 
         // Iterate through all sublocations
         for (sublocation in sublocations) {
             // Get venues from the current sublocation and add them to the list
-            allVenues.addAll(sublocation.getVenues().toList() as List<Venue>)
+            allVenues.addAll(sublocation.getVenues().toList())
         }
 
         Log.d(TAG, "Found a total of ${allVenues.size} venues across all sublocations.")
 
-        // Store the list of venues
+        // Store the list of Navigine venues
         currentVenues = allVenues
 
         if (allVenues.isNotEmpty()) {
@@ -609,12 +623,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             intent.putExtra("initial_query", initialQuery) // Pass the initial query if available
         }
 
-        // Serialize the list of venues to JSON and pass it
+        // Extract necessary data (only name) from Navigine Venue objects and create a list of VenueData
+        val venueDataList = venues.map {
+            VenueData(
+                name = it.getName(),
+            )
+        }
+
+        // Serialize the list of VenueData to JSON and pass it
         val gson = Gson()
         try {
-            val venueListJson = gson.toJson(venues)
+            val venueListJson = gson.toJson(venueDataList)
             intent.putExtra(EXTRA_VENUE_LIST_JSON, venueListJson)
-            Log.d(TAG, "Venues serialized successfully.")
+            Log.d(TAG, "VenueData serialized successfully.")
         } catch (e: Exception) {
             Log.e(TAG, "Error serializing venues: ${e.message}", e)
             // Handle serialization error, maybe pass an empty list or show an error
