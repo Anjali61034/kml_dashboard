@@ -236,6 +236,5 @@ class SearchActivity : AppCompatActivity() {
                 binding.emptyView.visibility = View.GONE
             }
         }
-        // If not focused, visibility remains as set by the focus listener (hidden if text is empty)
     }
 }
