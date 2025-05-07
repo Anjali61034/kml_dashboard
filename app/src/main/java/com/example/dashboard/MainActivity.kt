@@ -63,6 +63,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private val loadedNavigineLocations = HashMap<Int, NavigineLocation>() // Store loaded Navigine Location details
     private var currentVenues: List<Venue> = emptyList() // Store the list of Navigine venues from the current location
 
+    // Store the current Geocoder address for fallback
+    private var currentGeocoderAddress: String = "Unknown Area"
+
     companion object {
         private const val TAG = "MainActivity"
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
@@ -108,7 +111,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
         // Initialize location manager (replace with your implementation if different)
-        locationManager = LocationManager(this)
+        // Make sure your LocationManager is initialized here
+        locationManager = LocationManager(this) // Assuming LocationManager has a context constructor
 
         // Initialize location services
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
@@ -182,7 +186,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         Toast.makeText(this, "Tapped on: $suggestionText", Toast.LENGTH_SHORT).show()
         // You would typically add logic here to perform an action based on the suggestion
         // If you want to navigate to SearchActivity with the suggestion, you could do:
-        // navigateToSearchActivity(suggestionText, currentVenues)
+        navigateToSearchActivity(suggestionText, currentVenues)
     }
 
     private fun startSpeechRecognition() {
@@ -305,10 +309,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 // Update map with user location
                 updateMapWithUserLocation()
 
-                // Fetch address details based on user location
+                // Fetch address details based on user location (Geocoder)
                 fetchAddressDetails(userLatitude, userLongitude)
 
-                // Check if user is within a known location
+                // Check if user is within a known location (KML polygon)
                 checkIfLocationIsCanaryConnected()
             } ?: run {
                 Toast.makeText(
@@ -316,6 +320,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     "Unable to get current location. Please make sure location is enabled.",
                     Toast.LENGTH_LONG
                 ).show()
+                // Update UI to reflect unknown location
+                updateLocationUI(null)
+                setDefaultSuggestions()
             }
         }
     }
@@ -325,39 +332,51 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Use Build.VERSION_CODES for Android 13+
                 geocoder.getFromLocation(latitude, longitude, 1) { addresses ->
-                    processAddresses(addresses)
+                    processGeocoderAddresses(addresses)
                 }
             } else {
                 @Suppress("DEPRECATION")
                 val addresses = geocoder.getFromLocation(latitude, longitude, 1)
                 if (addresses != null) {
-                    processAddresses(addresses)
+                    processGeocoderAddresses(addresses)
                 }
             }
         } catch (e: IOException) {
             e.printStackTrace()
+            runOnUiThread {
+                currentGeocoderAddress = "Unknown Area (Geocoder Error)"
+                // If no KML location is found, this will be the fallback
+                updateLocationUI(null)
+            }
         }
     }
 
 
-    private fun processAddresses(addresses: List<Address>) {
+    private fun processGeocoderAddresses(addresses: List<Address>) {
         if (addresses.isNotEmpty()) {
             val address = addresses[0]
             // Get location name (could be locality, subLocality, or thoroughfare)
-            val locationName = address.featureName ?: address.locality ?: address.subLocality ?: address.thoroughfare ?: "Unknown Location"
+            currentGeocoderAddress = address.featureName ?: address.locality ?: address.subLocality ?: address.thoroughfare ?: "Unknown Area"
 
-            // Update UI with location name
+            // Update UI with Geocoder address initially.
+            // This will be overwritten if a KML location is found.
             runOnUiThread {
-                binding.locationNameText.text = locationName
-
-                // Update location info text based on Canary connection status
+                binding.locationNameText.text = currentGeocoderAddress
+                // Update location info text based on Canary connection status (will be updated again by checkIfLocationIsCanaryConnected)
+                updateLocationInfo()
+            }
+        } else {
+            runOnUiThread {
+                currentGeocoderAddress = "Unknown Area (No Geocoder Result)"
+                binding.locationNameText.text = currentGeocoderAddress
                 updateLocationInfo()
             }
         }
     }
 
     private fun updateLocationInfo() {
-        // Example implementation for updating location info. Adjust as necessary.
+        // This function is primarily for updating the "Canary Connected" status text.
+        // The location name is handled by updateLocationUI.
         binding.locationInfoText.text = if (isLocationCanaryConnected) {
             "This location is Canary Connected!"
         } else {
@@ -370,7 +389,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         googleMap?.let { map ->
             val userLocation = LatLng(userLatitude, userLongitude)
 
-            // Clear previous markers
+            // Clear previous markers and polygons
             map.clear()
 
             // Add user marker
@@ -384,8 +403,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             for (location in locationManager.getAllLocations()) {
                 val polygonOptions = PolygonOptions()
                     .clickable(true)
-                    .fillColor(0x3300FF00) // Semi-transparent green
-                    .strokeColor(0xFF00FF00.toInt()) // Green border
+                    .fillColor(if (location.isCanaryConnected) 0x3300FF00 else 0x33FF0000) // Green if connected, Red if not
+                    .strokeColor(if (location.isCanaryConnected) 0xFF00FF00.toInt() else 0xFFFF0000.toInt()) // Green border, Red border
                     .strokeWidth(3f)
 
                 location.polygonPoints.forEach { point ->
@@ -412,7 +431,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // Make sure we have valid user coordinates
         if (userLatitude == 0.0 && userLongitude == 0.0) {
             Log.d(TAG, "Invalid user coordinates")
-            updateLocationUI(null)
+            // Keep previous location name or set a default if no location was detected
+            updateLocationUI(null) // Pass null to indicate no known location
             setDefaultSuggestions() // Use default suggestions if location is unknown
             return
         }
@@ -423,6 +443,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (matchedLocation != null) {
             Log.d(TAG, "User is in location: ${matchedLocation.name} (ID: ${matchedLocation.id})")
             isLocationCanaryConnected = matchedLocation.isCanaryConnected
+
+            // Pass the matched location object to updateLocationUI
             updateLocationUI(matchedLocation)
 
             // If connected, try to load Navigine location details and update suggestions
@@ -436,53 +458,50 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     setDefaultSuggestions() // Fallback to default if Navigine info is missing
                 }
             } else {
+                // User is in a known KML location, but it's not Canary Connected
                 setDefaultSuggestions() // Fallback to default if not Canary connected
             }
         } else {
-            // User is not in a known location
+            // User is not in any known location - rely on Geocoder address
             val currentLocationString = "Your current location: Latitude: $userLatitude, Longitude: $userLongitude"
             Log.d(TAG, "User is not in any known location. $currentLocationString")
-            updateLocationUI(currentLocationString)
+            // We will rely on the Geocoder address set by fetchAddressDetails
+            updateLocationUI(null) // Pass null to indicate no known location
             setDefaultSuggestions() // Use default suggestions if location is unknown
         }
     }
 
 
-    private fun updateLocationUI(locationInfo: Any?) {
-        if (locationInfo is LocationManager.LocationInfo) {
-            if (isLocationCanaryConnected) {
+    private fun updateLocationUI(matchedLocation: LocationManager.LocationInfo?) {
+        runOnUiThread {
+            if (matchedLocation != null) {
+                // User is in a known KML location (either connected or not)
                 binding.locationStatusText.text = "You're at"
-                binding.locationNameText.text = locationInfo.name
-                binding.locationInfoText.text = "This location is Canary Connected!"
-                binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt())// Use a color resource
-                binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_green)
-                binding.canaryStatusText.text = "Status: Connected"
-                binding.canaryStatusIndicator.visibility = View.VISIBLE
+                binding.locationNameText.text = matchedLocation.name // Use the name from your LocationInfo
+
+                if (matchedLocation.isCanaryConnected) {
+                    binding.locationInfoText.text = "This location is Canary Connected!"
+                    binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt()) // Use a color resource
+                    binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_green)
+                    binding.canaryStatusText.text = "Status: Connected"
+                    binding.canaryStatusIndicator.visibility = View.VISIBLE
+                } else {
+                    binding.locationInfoText.text = "This location is not Canary Connected"
+                    binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
+                    binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
+                    binding.canaryStatusText.text = "Status: Disconnected"
+                    binding.canaryStatusIndicator.visibility = View.VISIBLE
+                }
             } else {
-                binding.locationStatusText.text = "You're at"
-                binding.locationNameText.text = locationInfo.name
+                // User is not in any known KML location - use the Geocoder address
+                binding.locationStatusText.text = "You're at" // or "Current Location:"
+                binding.locationNameText.text = currentGeocoderAddress // Use the stored Geocoder address
                 binding.locationInfoText.text = "This location is not Canary Connected"
                 binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
                 binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
                 binding.canaryStatusText.text = "Status: Disconnected"
                 binding.canaryStatusIndicator.visibility = View.VISIBLE
             }
-        } else if (locationInfo is String) {
-            binding.locationStatusText.text = "You're at" // or "Current Location:"
-            binding.locationNameText.text = locationInfo
-            binding.locationInfoText.text = "This location is not Canary Connected"
-            binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
-            binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
-            binding.canaryStatusText.text = "Status: Disconnected"
-            binding.canaryStatusIndicator.visibility = View.VISIBLE
-        } else {
-            binding.locationStatusText.text = "You're not at a known location"
-            binding.locationNameText.text = "Unknown Area"
-            binding.locationInfoText.text = "Move to a Canary Connected location"
-            binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
-            binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_gray)
-            binding.canaryStatusText.text = "Status: Disconnected"
-            binding.canaryStatusIndicator.visibility = View.VISIBLE
         }
     }
 
@@ -519,7 +538,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         checkIfLocationIsCanaryConnected()
                     }
                     // Consider removing the listener after the first load if you don't need continuous updates
-                    locationListManager.removeLocationListListener(this)
+                    // locationListManager.removeLocationListListener(this) // Keep the listener if you need updates on location list changes
                 }
 
                 override fun onLocationListFailed(error: Error) {
@@ -529,10 +548,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         Toast.makeText(this@MainActivity, "Failed to load location data.", Toast.LENGTH_SHORT).show()
                     }
                     // Remove the listener after failure
-                    locationListManager.removeLocationListListener(this)
+                    // locationListManager.removeLocationListListener(this) // Keep the listener if you want retries
                 }
             }
 
+            // Add the listener and then update the location list
             locationListManager.addLocationListListener(locationListListener)
             locationListManager.updateLocationList() // Start the loading process
 
