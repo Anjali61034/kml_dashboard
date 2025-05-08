@@ -13,7 +13,6 @@ import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.util.Log
 import android.view.View
-import android.widget.SearchView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,51 +34,50 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.maps.model.PolygonOptions
 import com.example.dashboard.VenueData
-import com.google.gson.Gson // Keep Gson for serialization
+import com.google.gson.Gson
 import com.navigine.idl.java.Location as NavigineLocation
 import com.navigine.idl.java.LocationInfo
 import com.navigine.idl.java.LocationListener
 import com.navigine.idl.java.LocationListListener
-import com.navigine.idl.java.Venue // Keep Navigine Venue for processing in MainActivity
+import com.navigine.idl.java.Venue
 import java.io.IOException
 import java.util.Locale
 import java.util.HashMap
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var binding: ActivityMainBinding
-    private lateinit var locationManager: LocationManager // Assuming you have a LocationManager class
+    private lateinit var locationManager: LocationManager
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var googleMap: GoogleMap? = null
 
     private lateinit var speechRecognitionLauncher: ActivityResultLauncher<Intent>
 
-    // Initialize location request
     private lateinit var locationRequest: LocationRequest
 
     private var userLatitude = 0.0
     private var userLongitude = 0.0
     private var isLocationCanaryConnected = false
-    private var matchedNavigineLocationInfo: LocationInfo? = null // Store the matched Navigine LocationInfo
-    private val loadedNavigineLocations = HashMap<Int, NavigineLocation>() // Store loaded Navigine Location details
-    private var currentVenues: List<Venue> = emptyList() // Store the list of Navigine venues from the current location
+    private var matchedNavigineLocationInfo: LocationInfo? = null
+    private val loadedNavigineLocations = HashMap<Int, NavigineLocation>()
+    private var currentVenues: List<Venue> = emptyList()
 
-    // Store the current Geocoder address for fallback
     private var currentGeocoderAddress: String = "Unknown Area"
 
     companion object {
         private const val TAG = "MainActivity"
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
         private const val recordAudioPermissionRequestCode = 1002
-        const val EXTRA_VENUE_LIST_JSON = "venue_list_json" // Define a constant for the Intent extra key
+        const val EXTRA_VENUE_LIST_JSON = "venue_list_json"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide()
 
-        // Initialize Navigine SDK Manager at the very start of onCreate
+        // 1. Initialize Navigine SDK FIRST
         initializeNavigineAndLoadLocations()
 
+        // 2. Proceed with rest of setup after SDK initialization
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
 
         // Initialize speech recognition launcher
@@ -92,35 +90,29 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 )
                 spokenText?.get(0)?.let { text ->
                     Log.d(TAG, "Speech recognition result: $text")
-                    // Now, navigate to SearchActivity with the spoken text
-                    // and the *current* venues (which should be loaded if in a connected location)
                     navigateToSearchActivity(text, currentVenues)
                 } ?: run {
                     Log.w(TAG, "Speech recognition result is empty or null.")
-                    // Handle the case where no speech was recognized
                     Toast.makeText(this, "Speech not recognized.", Toast.LENGTH_SHORT).show()
                 }
             } else if (result.resultCode == RESULT_CANCELED) {
                 Log.d(TAG, "Speech recognition cancelled.")
-                // Handle cancelled speech recognition if needed
             } else {
                 Log.e(TAG, "Speech recognition failed with result code: ${result.resultCode}")
-                // Handle other potential errors
                 Toast.makeText(this, "Speech recognition failed.", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Initialize location manager (replace with your implementation if different)
-        // Make sure your LocationManager is initialized here
-        locationManager = LocationManager(this) // Assuming LocationManager has a context constructor
+        // Initialize location manager
+        locationManager = LocationManager(this)
 
         // Initialize location services
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // Create LocationRequest using the Builder
+        // Create LocationRequest
         locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
-            .setMinUpdateDistanceMeters(10f)  // Only update if the user has moved 10 meters
-            .setMaxUpdateDelayMillis(5000)  // Fastest interval for updates (5 seconds)
+            .setMinUpdateDistanceMeters(10f)
+            .setMaxUpdateDelayMillis(5000)
             .build()
 
         // Set up map
@@ -128,7 +120,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .findFragmentById(R.id.mapFragment) as SupportMapFragment
         mapFragment.getMapAsync(this)
 
-        // Set up suggestion cards (initial state)
+        // Set default suggestions initially
         setDefaultSuggestions()
 
         // Request location permissions
@@ -136,45 +128,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         binding.micButton.setOnClickListener {
             Log.d(TAG, "Mic button clicked.")
-            // Check for audio recording permission
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.RECORD_AUDIO
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-                // Request permission
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.RECORD_AUDIO),
                     recordAudioPermissionRequestCode
                 )
             } else {
-                // Permission already granted, start speech recognition
                 startSpeechRecognition()
             }
         }
+
         binding.searchLayout.setOnClickListener {
             Log.d(TAG, "Search layout clicked.")
-            // When the search area is clicked, immediately navigate to SearchActivity
-            // with the current venues list.
-            navigateToSearchActivity(null, currentVenues) // Pass null for initial query if clicked directly
-        }
-
-// Make sure the entire search bar is clickable, not just the icon
-        binding.searchView.setOnClickListener {
-            Log.d(TAG, "Search view clicked.")
-            // Navigate to search activity when search view is clicked
             navigateToSearchActivity(null, currentVenues)
         }
 
-// Optional: Disable the actual search functionality on the SearchView in MainActivity
-// since we're handling it in SearchActivity
-        binding.searchView.isClickable = true
-        binding.searchView.isSubmitButtonEnabled = false
-        binding.searchView.setOnQueryTextListener(null) // Remove any existing listeners
+        // Make entire search view clickable
+        binding.searchView.setOnClickListener {
+            Log.d(TAG, "Search view clicked.")
+            navigateToSearchActivity(null, currentVenues)
+        }
 
-
-        // Setup click listeners for suggestion cards
+        // Setup suggestion card click listeners
         binding.suggestionCard1.setOnClickListener { handleSuggestionCardClick(binding.suggestionText1.text.toString()) }
         binding.suggestionCard2.setOnClickListener { handleSuggestionCardClick(binding.suggestionText2.text.toString()) }
         binding.suggestionCard3.setOnClickListener { handleSuggestionCardClick(binding.suggestionText3.text.toString()) }
@@ -182,156 +162,102 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun handleSuggestionCardClick(suggestionText: String) {
-        // Show a toast to indicate which suggestion was tapped
         Toast.makeText(this, "Navigating to: $suggestionText", Toast.LENGTH_SHORT).show()
-
-        // Check if we have a matched Navigine location
         if (isLocationCanaryConnected && matchedNavigineLocationInfo != null) {
-            // Get the location ID from the matched location info
             val locationId = matchedNavigineLocationInfo!!.id
-
-            // Find the venue that matches the suggestion text (if any)
             var selectedVenueId = -1
             var selectedSublocationId = -1
-
-            // Check if we have loaded location details
             val loadedLocation = loadedNavigineLocations[locationId]
             if (loadedLocation != null) {
-                // Iterate through sublocations to find the venue
                 for (sublocation in loadedLocation.getSublocations()) {
                     for (venue in sublocation.getVenues()) {
                         if (venue.getName() == suggestionText) {
-                            // We found a matching venue
                             selectedVenueId = venue.getId()
                             selectedSublocationId = sublocation.getId()
                             break
                         }
                     }
-                    if (selectedVenueId != -1) break // Stop if we found the venue
+                    if (selectedVenueId != -1) break
                 }
-
-                // Create an Intent to start LocationMapActivity
                 try {
-                    // Create a bundle to pass arguments
                     val bundle = Bundle().apply {
                         putInt("locationId", locationId)
                         putInt("sublocationId", selectedSublocationId)
-                        putInt("venueId", selectedVenueId) // Optional, for future use
-                        putString("venueName", suggestionText) // Pass the venue name
+                        putInt("venueId", selectedVenueId)
+                        putString("venueName", suggestionText)
                     }
-
-                    // Create the Intent for the map fragment
                     val intent = Intent(this, MapActivity::class.java)
                     intent.putExtras(bundle)
                     startActivity(intent)
-
                     Log.d(TAG, "Launched MapActivity for location: $locationId, sublocation: $selectedSublocationId, venue: $selectedVenueId")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error launching map: ${e.message}", e)
                     Toast.makeText(this, "Could not open map view.", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                // Location details not loaded yet, try to load them
-                Log.d(TAG, "Location details not loaded yet, attempting to load")
                 loadNavigineLocationDetails(locationId)
                 Toast.makeText(this, "Please try again in a moment.", Toast.LENGTH_SHORT).show()
             }
         } else {
-            // Not in a Canary connected location
             Toast.makeText(this, "Map not available - not in a Canary connected location", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun startSpeechRecognition() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now")
         }
-
         try {
             Log.d(TAG, "Launching speech recognition intent.")
             speechRecognitionLauncher.launch(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error launching speech recognition: ${e.message}", e)
-            Toast.makeText(
-                this,
-                "Speech recognition not supported on this device",
-                Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this, "Speech recognition not supported on this device", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun updateSuggestionCards(venues: List<Venue>) {
         runOnUiThread {
-            // Update up to 4 suggestion cards with venue names
             val maxCards = minOf(venues.size, 4)
-            val defaultTexts = arrayOf("Reception", "Office", "Hall", "Doctor") // Fallback texts
-
-            // Safely access venue names from the provided list
+            val defaultTexts = arrayOf("Reception", "Office", "Hall", "Doctor")
             binding.suggestionText1.text = venues.getOrNull(0)?.getName() ?: defaultTexts[0]
             binding.suggestionText2.text = venues.getOrNull(1)?.getName() ?: defaultTexts[1]
             binding.suggestionText3.text = venues.getOrNull(2)?.getName() ?: defaultTexts[2]
             binding.suggestionText4.text = venues.getOrNull(3)?.getName() ?: defaultTexts[3]
-
             Log.d(TAG, "Updated ${maxCards} suggestion cards with venues.")
         }
     }
 
     private fun setDefaultSuggestions() {
         runOnUiThread {
-            // Set default suggestions for the cards
             val defaultTexts = arrayOf("Reception", "Office", "Hall", "Doctor")
             binding.suggestionText1.text = defaultTexts[0]
             binding.suggestionText2.text = defaultTexts[1]
             binding.suggestionText3.text = defaultTexts[2]
             binding.suggestionText4.text = defaultTexts[3]
-
-            // Assuming you have default icons set in your XML
-            // binding.suggestionIcon1.setImageResource(R.drawable.default_icon) // Example
             Log.d(TAG, "Set default suggestions")
-
-            // When setting default suggestions, also clear the current venues list
             currentVenues = emptyList()
         }
     }
 
-
     private fun requestLocationPermissions() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                LOCATION_PERMISSION_REQUEST_CODE
-            )
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST_CODE)
         } else {
             getLastLocation()
         }
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when (requestCode) {
             LOCATION_PERMISSION_REQUEST_CODE -> {
                 if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     getLastLocation()
                 } else {
-                    Toast.makeText(
-                        this,
-                        "Location permission denied. Cannot detect if you're in a Canary connected location.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this, "Location permission denied. Cannot detect if you're in a Canary connected location.", Toast.LENGTH_LONG).show()
                 }
             }
             recordAudioPermissionRequestCode -> {
@@ -346,34 +272,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     @SuppressLint("MissingPermission")
     private fun getLastLocation() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             return
         }
-
         fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
             location?.let {
                 userLatitude = it.latitude
                 userLongitude = it.longitude
-
-                // Update map with user location
                 updateMapWithUserLocation()
-
-                // Fetch address details based on user location (Geocoder)
                 fetchAddressDetails(userLatitude, userLongitude)
-
-                // Check if user is within a known location (KML polygon)
                 checkIfLocationIsCanaryConnected()
             } ?: run {
-                Toast.makeText(
-                    this,
-                    "Unable to get current location. Please make sure location is enabled.",
-                    Toast.LENGTH_LONG
-                ).show()
-                // Update UI to reflect unknown location
+                Toast.makeText(this, "Unable to get current location. Please make sure location is enabled.", Toast.LENGTH_LONG).show()
                 updateLocationUI(null)
                 setDefaultSuggestions()
             }
@@ -383,7 +293,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun fetchAddressDetails(latitude: Double, longitude: Double) {
         val geocoder = Geocoder(this, Locale.getDefault())
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Use Build.VERSION_CODES for Android 13+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 geocoder.getFromLocation(latitude, longitude, 1) { addresses ->
                     processGeocoderAddresses(addresses)
                 }
@@ -398,24 +308,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             e.printStackTrace()
             runOnUiThread {
                 currentGeocoderAddress = "Unknown Area (Geocoder Error)"
-                // If no KML location is found, this will be the fallback
                 updateLocationUI(null)
             }
         }
     }
 
-
     private fun processGeocoderAddresses(addresses: List<Address>) {
         if (addresses.isNotEmpty()) {
             val address = addresses[0]
-            // Get location name (could be locality, subLocality, or thoroughfare)
             currentGeocoderAddress = address.featureName ?: address.locality ?: address.subLocality ?: address.thoroughfare ?: "Unknown Area"
-
-            // Update UI with Geocoder address initially.
-            // This will be overwritten if a KML location is found.
             runOnUiThread {
                 binding.locationNameText.text = currentGeocoderAddress
-                // Update location info text based on Canary connection status (will be updated again by checkIfLocationIsCanaryConnected)
                 updateLocationInfo()
             }
         } else {
@@ -428,8 +331,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun updateLocationInfo() {
-        // This function is primarily for updating the "Canary Connected" status text.
-        // The location name is handled by updateLocationUI.
         binding.locationInfoText.text = if (isLocationCanaryConnected) {
             "This location is Canary Connected!"
         } else {
@@ -441,36 +342,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun updateMapWithUserLocation() {
         googleMap?.let { map ->
             val userLocation = LatLng(userLatitude, userLongitude)
-
-            // Clear previous markers and polygons
             map.clear()
-
-            // Add user marker
-            map.addMarker(
-                MarkerOptions()
-                    .position(userLocation)
-                    .title("You are here")
-            )
-
-            // Add location polygons (using data from your LocationManager if available)
+            map.addMarker(MarkerOptions().position(userLocation).title("You are here"))
             for (location in locationManager.getAllLocations()) {
                 val polygonOptions = PolygonOptions()
                     .clickable(true)
-                    .fillColor(if (location.isCanaryConnected) 0x3300FF00 else 0x33FF0000) // Green if connected, Red if not
-                    .strokeColor(if (location.isCanaryConnected) 0xFF00FF00.toInt() else 0xFFFF0000.toInt()) // Green border, Red border
+                    .fillColor(if (location.isCanaryConnected) 0x3300FF00 else 0x33FF0000)
+                    .strokeColor(if (location.isCanaryConnected) 0xFF00FF00.toInt() else 0xFFFF0000.toInt())
                     .strokeWidth(3f)
-
                 location.polygonPoints.forEach { point ->
                     polygonOptions.add(LatLng(point.latitude, point.longitude))
                 }
-
                 map.addPolygon(polygonOptions)
             }
-
-            // Move camera to user location
             map.animateCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 17f))
-
-            // Enable location button
             map.isMyLocationEnabled = true
             map.uiSettings.isMyLocationButtonEnabled = true
         }
@@ -478,29 +363,23 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun checkIfLocationIsCanaryConnected() {
         isLocationCanaryConnected = false
-        matchedNavigineLocationInfo = null // Reset matched location info
-        currentVenues = emptyList() // Clear previous venues
+        matchedNavigineLocationInfo = null
+        currentVenues = emptyList()
 
-        // Make sure we have valid user coordinates
         if (userLatitude == 0.0 && userLongitude == 0.0) {
             Log.d(TAG, "Invalid user coordinates")
-            // Keep previous location name or set a default if no location was detected
-            updateLocationUI(null) // Pass null to indicate no known location
-            setDefaultSuggestions() // Use default suggestions if location is unknown
+            updateLocationUI(null)
+            setDefaultSuggestions()
             return
         }
 
-        // Check if user is within a known location (using your LocationManager's logic)
         val matchedLocation = locationManager.checkUserLocation(userLatitude, userLongitude)
 
         if (matchedLocation != null) {
             Log.d(TAG, "User is in location: ${matchedLocation.name} (ID: ${matchedLocation.id})")
             isLocationCanaryConnected = matchedLocation.isCanaryConnected
-
-            // Pass the matched location object to updateLocationUI
             updateLocationUI(matchedLocation)
 
-            // If connected, try to load Navigine location details and update suggestions
             if (isLocationCanaryConnected) {
                 val navigineLocationInfo = NavigineSdkManager.locationListManager.locationList[matchedLocation.id]
                 if (navigineLocationInfo != null) {
@@ -508,49 +387,42 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     loadNavigineLocationDetails(navigineLocationInfo.id)
                 } else {
                     Log.w(TAG, "Navigine LocationInfo not found for ID: ${matchedLocation.id}")
-                    setDefaultSuggestions() // Fallback to default if Navigine info is missing
+                    setDefaultSuggestions()
                 }
             } else {
-                // User is in a known KML location, but it's not Canary Connected
-                setDefaultSuggestions() // Fallback to default if not Canary connected
+                setDefaultSuggestions()
             }
         } else {
-            // User is not in any known location - rely on Geocoder address
             val currentLocationString = "Your current location: Latitude: $userLatitude, Longitude: $userLongitude"
             Log.d(TAG, "User is not in any known location. $currentLocationString")
-            // We will rely on the Geocoder address set by fetchAddressDetails
-            updateLocationUI(null) // Pass null to indicate no known location
-            setDefaultSuggestions() // Use default suggestions if location is unknown
+            updateLocationUI(null)
+            setDefaultSuggestions()
         }
     }
-
 
     private fun updateLocationUI(matchedLocation: LocationManager.LocationInfo?) {
         runOnUiThread {
             if (matchedLocation != null) {
-                // User is in a known KML location (either connected or not)
                 binding.locationStatusText.text = "You're at"
-                binding.locationNameText.text = matchedLocation.name // Use the name from your LocationInfo
-
+                binding.locationNameText.text = matchedLocation.name
                 if (matchedLocation.isCanaryConnected) {
                     binding.locationInfoText.text = "This location is Canary Connected!"
-                    binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt()) // Use a color resource
+                    binding.locationInfoCardView.setCardBackgroundColor(0xFFE6FFB3.toInt())
                     binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_green)
                     binding.canaryStatusText.text = "Status: Connected"
                     binding.canaryStatusIndicator.visibility = View.VISIBLE
                 } else {
                     binding.locationInfoText.text = "This location is not Canary Connected"
-                    binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
+                    binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt())
                     binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
                     binding.canaryStatusText.text = "Status: Disconnected"
                     binding.canaryStatusIndicator.visibility = View.VISIBLE
                 }
             } else {
-                // User is not in any known KML location - use the Geocoder address
-                binding.locationStatusText.text = "You're at" // or "Current Location:"
-                binding.locationNameText.text = currentGeocoderAddress // Use the stored Geocoder address
+                binding.locationStatusText.text = "You're at"
+                binding.locationNameText.text = currentGeocoderAddress
                 binding.locationInfoText.text = "This location is not Canary Connected"
-                binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt()) // Use a color resource
+                binding.locationInfoCardView.setCardBackgroundColor(0xFFF0F0F0.toInt())
                 binding.canaryStatusIndicator.setBackgroundResource(R.drawable.circle_indicator_red)
                 binding.canaryStatusText.text = "Status: Disconnected"
                 binding.canaryStatusIndicator.visibility = View.VISIBLE
@@ -558,20 +430,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-
+    // Inside your MainActivity.kt, around SDK calls:
     private fun initializeNavigineAndLoadLocations() {
         try {
-            // Initialize SDK Manager
+            // Call initialize() without checking isInitialized
             NavigineSdkManager.initialize(this)
             Log.d("Navigine", "SDK initialized successfully")
-
-            // Load Navigine locations
             loadNavigineLocationList()
-
         } catch (e: Exception) {
             Log.e("Navigine", "Error initializing SDK: ${e.message}")
             runOnUiThread {
-                Toast.makeText(this@MainActivity, "Failed to initialize location services.", Toast.LENGTH_LONG).show() // Use LONG for initialization errors
+                Toast.makeText(this@MainActivity, "Failed to initialize location services.", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -579,131 +448,88 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun loadNavigineLocationList() {
         try {
             val locationListManager = NavigineSdkManager.locationListManager
-
             val locationListListener = object : LocationListListener() {
                 override fun onLocationListLoaded(idToLocationInfoMap: HashMap<Int, LocationInfo>) {
-                    Log.d(TAG, "Navigine location list loaded. Found ${idToLocationInfoMap.size} locations.")
-                    // The location list is now available in NavigineSdkManager.locationListManager.locationList
-                    // You can access location information here if needed, but location details are loaded on demand.
-
-                    // Check if user location is already available and re-check Canary connection
+                    Log.d(TAG, "Location list loaded.")
                     if (userLatitude != 0.0 && userLongitude != 0.0) {
                         checkIfLocationIsCanaryConnected()
                     }
-                    // Consider removing the listener after the first load if you don't need continuous updates
-                    // locationListManager.removeLocationListListener(this) // Keep the listener if you need updates on location list changes
                 }
 
                 override fun onLocationListFailed(error: Error) {
-                    Log.e(TAG, "Failed to load Navigine location list: ${error.message}")
-                    // Handle error, e.g., show a message to the user
+                    Log.e(TAG, "Failed to load location list: ${error.message}")
                     runOnUiThread {
                         Toast.makeText(this@MainActivity, "Failed to load location data.", Toast.LENGTH_SHORT).show()
                     }
-                    // Remove the listener after failure
-                    // locationListManager.removeLocationListListener(this) // Keep the listener if you want retries
                 }
             }
-
-            // Add the listener and then update the location list
             locationListManager.addLocationListListener(locationListListener)
-            locationListManager.updateLocationList() // Start the loading process
-
+            locationListManager.updateLocationList()
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading Navigine location list: ${e.message}")
+            Log.e(TAG, "Error loading location list: ${e.message}")
         }
     }
 
     private fun loadNavigineLocationDetails(locationId: Int) {
-        // Check if location details are already loaded
         if (loadedNavigineLocations.containsKey(locationId)) {
-            Log.d(TAG, "Navigine location details for ID $locationId already loaded.")
+            // Already loaded
             val location = loadedNavigineLocations[locationId]
             location?.let { processLoadedLocation(it) }
             return
         }
-
         try {
-            // Create a new LocationListener for this specific load request
             val locationListener = object : LocationListener() {
                 override fun onLocationLoaded(location: NavigineLocation) {
-                    Log.d(TAG, "Navigine location details loaded for ID ${location.getId()}: ${location.getName()}")
+                    Log.d(TAG, "Loaded location details: ${location.name}")
                     loadedNavigineLocations[location.getId()] = location
                     processLoadedLocation(location)
-                    // Remove this specific listener after successful loading
                     NavigineSdkManager.locationManager.removeLocationListener(this)
                 }
-
-                override fun onLocationUploaded(p0: Int) {
-                    // Not needed for this use case
-                }
-
                 override fun onLocationFailed(locationId: Int, error: java.lang.Error?) {
-                    Log.e(TAG, "Failed to load Navigine location details for ID $locationId: ${error?.message}")
-                    // Handle error, e.g., show a message or use default suggestions
+                    Log.e(TAG, "Failed to load location $locationId: ${error?.message}")
                     runOnUiThread {
                         Toast.makeText(this@MainActivity, "Failed to load location details.", Toast.LENGTH_SHORT).show()
                     }
-                    setDefaultSuggestions() // Fallback to default suggestions on failure
-                    // Remove this specific listener after failure
+                    setDefaultSuggestions()
                     NavigineSdkManager.locationManager.removeLocationListener(this)
                 }
+                override fun onLocationUploaded(p0: Int) {}
             }
-
-            // Add the listener and then set the location ID to trigger the load
             NavigineSdkManager.locationManager.addLocationListener(locationListener)
             NavigineSdkManager.locationManager.setLocationId(locationId)
-
-
         } catch (e: Exception) {
-            Log.e(TAG, "Error setting Navigine location ID: ${e.message}")
-            setDefaultSuggestions() // Fallback to default suggestions on error
+            Log.e(TAG, "Error setting location ID: ${e.message}")
+            setDefaultSuggestions()
         }
     }
 
     private fun processLoadedLocation(location: NavigineLocation) {
         val sublocations = location.getSublocations()
-        val allVenues = mutableListOf<Venue>() // Create a mutable list to hold all Navigine venues
-
-        // Iterate through all sublocations
+        val allVenues = mutableListOf<Venue>()
         for (sublocation in sublocations) {
-            // Get venues from the current sublocation and add them to the list
             allVenues.addAll(sublocation.getVenues().toList())
         }
-
         Log.d(TAG, "Found a total of ${allVenues.size} venues across all sublocations.")
-
-        // Store the list of Navigine venues
         currentVenues = allVenues
-
         if (allVenues.isNotEmpty()) {
-            // Now you have a list of all venues from all sublocations.
-            // You might want to sort or filter this list before updating suggestion cards.
-            // For example, you could sort alphabetically or by some other criteria.
-            // For now, let's just use the first few from the combined list.
-            updateSuggestionCards(allVenues) // Pass the combined list of venues
+            updateSuggestionCards(allVenues)
         } else {
             Log.d(TAG, "No venues found in any sublocation for location: ${location.getName()}")
-            setDefaultSuggestions() // Use default suggestions if no venues are found in any sublocation
+            setDefaultSuggestions()
         }
     }
 
-    // Function to handle navigation to SearchActivity
     private fun navigateToSearchActivity(initialQuery: String?, venues: List<Venue>) {
         Log.d(TAG, "Attempting to navigate to SearchActivity with query: $initialQuery and ${venues.size} venues.")
         val intent = Intent(this, SearchActivity::class.java)
-        if (initialQuery != null) {
-            intent.putExtra("initial_query", initialQuery) // Pass the initial query if available
+        initialQuery?.let {
+            intent.putExtra("initial_query", it)
         }
-
-        // Extract necessary data (only name) from Navigine Venue objects and create a list of VenueData
         val venueDataList = venues.map {
             VenueData(
                 name = it.getName(),
             )
         }
-
-        // Serialize the list of VenueData to JSON and pass it
         val gson = Gson()
         try {
             val venueListJson = gson.toJson(venueDataList)
@@ -711,12 +537,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             Log.d(TAG, "VenueData serialized successfully.")
         } catch (e: Exception) {
             Log.e(TAG, "Error serializing venues: ${e.message}", e)
-            // Handle serialization error, maybe pass an empty list or show an error
-            intent.putExtra(EXTRA_VENUE_LIST_JSON, "[]") // Pass an empty JSON array
+            intent.putExtra(EXTRA_VENUE_LIST_JSON, "[]")
             Toast.makeText(this, "Error preparing venue data for search.", Toast.LENGTH_SHORT).show()
         }
-
-
         try {
             startActivity(intent)
             Log.d(TAG, "SearchActivity launched.")
@@ -726,33 +549,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-
     override fun onMapReady(map: GoogleMap) {
         googleMap = map
-
-        // Configure map settings
         with(map) {
             uiSettings.isZoomControlsEnabled = true
             uiSettings.isCompassEnabled = true
-
             try {
-                if (ActivityCompat.checkSelfPermission(
-                        this@MainActivity,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
-                ) {
+                if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                     isMyLocationEnabled = true
                 }
             } catch (e: SecurityException) {
                 Log.e(TAG, "Error setting location on map", e)
             }
         }
-
-        // If we already have location, update the map
         if (userLatitude != 0.0 && userLongitude != 0.0) {
             updateMapWithUserLocation()
         } else {
-            // Center on St. Stephens Hospital as default
             val defaultLocation = LatLng(28.6668404, 77.2147314)
             map.moveCamera(CameraUpdateFactory.newLatLngZoom(defaultLocation, 17f))
         }
@@ -760,7 +572,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Clean up Navigine SDK resources if necessary
-        // NavigineSdkManager.release() // Uncomment if you need to release SDK resources
+        // Cleanup if needed
+        // NavigineSdkManager.release()
     }
 }

@@ -59,7 +59,8 @@ dependencies {
 
     // Data binding
     implementation 'androidx.databinding:databinding-runtime:8.1.0'
-
+    implementation "androidx.navigation:navigation-fragment-ktx:2.7.0"
+    implementation "androidx.navigation:navigation-ui-ktx:2.7.0"
     // Lifecycle components
     implementation libs.androidx.lifecycle.runtime.ktx
     implementation fileTree(includes: ['*.jar','*.aar'], dir: 'libs')
