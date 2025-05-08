@@ -760,7 +760,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Clean up Navigine SDK resources if necessary
         // NavigineSdkManager.release() // Uncomment if you need to release SDK resources
     }
 }
