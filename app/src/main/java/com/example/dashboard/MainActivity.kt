@@ -182,11 +182,64 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun handleSuggestionCardClick(suggestionText: String) {
-        // Handle the click on a suggestion card, e.g., initiate navigation or display information
-        Toast.makeText(this, "Tapped on: $suggestionText", Toast.LENGTH_SHORT).show()
-        // You would typically add logic here to perform an action based on the suggestion
-        // If you want to navigate to SearchActivity with the suggestion, you could do:
-        navigateToSearchActivity(suggestionText, currentVenues)
+        // Show a toast to indicate which suggestion was tapped
+        Toast.makeText(this, "Navigating to: $suggestionText", Toast.LENGTH_SHORT).show()
+
+        // Check if we have a matched Navigine location
+        if (isLocationCanaryConnected && matchedNavigineLocationInfo != null) {
+            // Get the location ID from the matched location info
+            val locationId = matchedNavigineLocationInfo!!.id
+
+            // Find the venue that matches the suggestion text (if any)
+            var selectedVenueId = -1
+            var selectedSublocationId = -1
+
+            // Check if we have loaded location details
+            val loadedLocation = loadedNavigineLocations[locationId]
+            if (loadedLocation != null) {
+                // Iterate through sublocations to find the venue
+                for (sublocation in loadedLocation.getSublocations()) {
+                    for (venue in sublocation.getVenues()) {
+                        if (venue.getName() == suggestionText) {
+                            // We found a matching venue
+                            selectedVenueId = venue.getId()
+                            selectedSublocationId = sublocation.getId()
+                            break
+                        }
+                    }
+                    if (selectedVenueId != -1) break // Stop if we found the venue
+                }
+
+                // Create an Intent to start LocationMapActivity
+                try {
+                    // Create a bundle to pass arguments
+                    val bundle = Bundle().apply {
+                        putInt("locationId", locationId)
+                        putInt("sublocationId", selectedSublocationId)
+                        putInt("venueId", selectedVenueId) // Optional, for future use
+                        putString("venueName", suggestionText) // Pass the venue name
+                    }
+
+                    // Create the Intent for the map fragment
+                    val intent = Intent(this, MapActivity::class.java)
+                    intent.putExtras(bundle)
+                    startActivity(intent)
+
+                    Log.d(TAG, "Launched MapActivity for location: $locationId, sublocation: $selectedSublocationId, venue: $selectedVenueId")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error launching map: ${e.message}", e)
+                    Toast.makeText(this, "Could not open map view.", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Location details not loaded yet, try to load them
+                Log.d(TAG, "Location details not loaded yet, attempting to load")
+                loadNavigineLocationDetails(locationId)
+                Toast.makeText(this, "Please try again in a moment.", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            // Not in a Canary connected location
+            Toast.makeText(this, "Map not available - not in a Canary connected location", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun startSpeechRecognition() {

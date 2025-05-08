@@ -41,6 +41,16 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MapActivity"
+            android:exported="false"
+            android:label="Map View"
+            android:parentActivityName=".MainActivity">
+            <meta-data
+                android:name="android.support.PARENT_ACTIVITY"
+                android:value=".MainActivity" />
+        </activity>
         <activity
             android:name=".SignupActivity"
             android:exported="false" />
